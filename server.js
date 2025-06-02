@@ -1,63 +1,33 @@
 const express = require('express');
-const WebSocket = require('ws');
-const http = require('http');
 const cors = require('cors');
-
 const app = express();
+
+// Middleware
 app.use(cors());
-const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
+app.use(express.json());
 
-// Store all connected clients
-const webAppClients = new Set(); // For React web app
-const esp32Clients = new Set();  // For ESP32 devices
+// Store messages (in-memory for simplicity)
+let messages = [];
 
-wss.on('connection', (ws, req) => {
-  // Check if connection is from ESP32 (you can add more robust authentication)
-  const isESP32 = req.url.includes('/esp32');
-  
-  if (isESP32) {
-    console.log('New ESP32 connected');
-    esp32Clients.add(ws);
-    
-    ws.on('message', (message) => {
-      console.log(`Message from ESP32: ${message}`);
-      // Forward to all web app clients
-      webAppClients.forEach(client => {
-        if (client.readyState === WebSocket.OPEN) {
-          client.send(message.toString());
-        }
-      });
-    });
-  } else {
-    console.log('New Web App connected');
-    webAppClients.add(ws);
+// Web App sends messages
+app.post('/send-to-esp', (req, res) => {
+  const message = req.body.message;
+  if (!message) {
+    return res.status(400).json({ error: 'Message is required' });
   }
-
-  ws.on('close', () => {
-    if (isESP32) {
-      esp32Clients.delete(ws);
-      console.log('ESP32 disconnected');
-    } else {
-      webAppClients.delete(ws);
-      console.log('Web App disconnected');
-    }
-  });
-});
-
-// HTTP endpoint for web app to send messages
-app.get('/send-to-esp', (req, res) => {
-  const message = req.query.msg || '';
   
-  esp32Clients.forEach(client => {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(message);
-    }
+  messages.push({
+    message,
+    timestamp: new Date().toISOString()
   });
   
-  res.json({ success: true, message: 'Message sent to ESP32' });
+  res.json({ success: true });
 });
 
-server.listen(8080, () => {
-  console.log('Server running on http://localhost:8080');
+// ESP32 retrieves messages
+app.get('/get-messages', (req, res) => {
+  res.json({ messages });
+  messages = []; // Clear after retrieval (adjust based on your needs)
 });
+
+module.exports = app;
